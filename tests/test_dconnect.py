@@ -5,16 +5,16 @@ import aiounittest
 from aiohttp import ClientSession
 from aioresponses import aioresponses
 
-from dabpumps.dconnect import (
+from dabpumps.auth import Auth
+from dabpumps.const import (
     API_BASE_URL,
     API_GET_DUMSTATE,
     API_GET_INSTALLATION,
     API_GET_INSTALLATION_LIST,
-    API_GET_TOKEN_URL,
-    DConnect,
-    DConnectError,
-    DConnectErrorType,
+    API_GET_TOKEN,
 )
+from dabpumps.dconnect import DConnect
+from dabpumps.exceptions import InvalidAuthError
 from dabpumps.pump import MeasureSystem, PumpState, PumpStatus, SystemStatus
 
 ACCESS_TOKEN = "access-token"
@@ -36,39 +36,41 @@ class TestDConnect(aiounittest.AsyncTestCase):
     @aioresponses()
     async def test_authenticate_ok(self, mock):
         mock.post(
-            API_BASE_URL + API_GET_TOKEN_URL,
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
             body=load_fixture("get_token_ok.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        authentication = await dconnect.authenticate("email", "password")
+        auth = Auth(ClientSession(), "email", "password")
+        await auth.authenticate()
 
-        self.assertEqual(ACCESS_TOKEN, authentication.access_token)
-        self.assertGreaterEqual((authentication.access_token_expires - datetime.now(UTC)).days, 364)
-        self.assertFalse(authentication.is_expired())
+        self.assertEqual(ACCESS_TOKEN, auth.access_token)
+        self.assertGreaterEqual((auth.access_token_expires - datetime.now(UTC)).days, 364)
 
     @aioresponses()
     async def test_authenticate_wrong_credential(self, mock):
         mock.post(
-            API_BASE_URL + API_GET_TOKEN_URL,
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
             body=load_fixture("get_token_wrong_credential.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        with self.assertRaises(DConnectError) as cm:
-            await dconnect.authenticate("email", "password")
-        the_exception = cm.exception
-        self.assertEqual(DConnectErrorType.WRONG_CREDENTIAL, the_exception.error_type)
+        auth = Auth(ClientSession(), "email", "password")
+        with self.assertRaises(InvalidAuthError):
+            await auth.authenticate()
 
     @aioresponses()
     async def test_get_installations_ok(self, mock):
+        mock.post(
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
+            body=load_fixture("get_token_ok.json"),
+        )
+
         mock.get(
-            API_BASE_URL + API_GET_INSTALLATION_LIST,
+            f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
             body=load_fixture("get_installations_ok.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        installations = await dconnect.get_installations(ACCESS_TOKEN)
+        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
+        installations = await dconnect.get_installations()
 
         self.assertEqual(1, len(installations))
 
@@ -81,26 +83,34 @@ class TestDConnect(aiounittest.AsyncTestCase):
 
     @aioresponses()
     async def test_get_installations_forbidden(self, mock):
+        mock.post(
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
+            body=load_fixture("get_token_ok.json"),
+        )
+
         mock.get(
-            API_BASE_URL + API_GET_INSTALLATION_LIST,
+            f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
             body=load_fixture("get_installations_forbidden.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        with self.assertRaises(DConnectError) as cm:
-            await dconnect.get_installations(ACCESS_TOKEN)
-        the_exception = cm.exception
-        self.assertEqual(DConnectErrorType.FORBIDDEN, the_exception.error_type)
+        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
+        with self.assertRaises(InvalidAuthError):
+            await dconnect.get_installations()
 
     @aioresponses()
     async def test_get_pumps(self, mock):
+        mock.post(
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
+            body=load_fixture("get_token_ok.json"),
+        )
+
         mock.get(
-            API_BASE_URL + API_GET_INSTALLATION + INSTALLATION_ID,
+            f"{API_BASE_URL}/{API_GET_INSTALLATION}/{INSTALLATION_ID}",
             body=load_fixture("get_installation.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        pumps = await dconnect.get_pumps(ACCESS_TOKEN, INSTALLATION_ID)
+        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
+        pumps = await dconnect.get_pumps(INSTALLATION_ID)
 
         self.assertEqual(1, len(pumps))
 
@@ -112,13 +122,18 @@ class TestDConnect(aiounittest.AsyncTestCase):
 
     @aioresponses()
     async def test_get_pump_state_international_standby(self, mock):
+        mock.post(
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
+            body=load_fixture("get_token_ok.json"),
+        )
+
         mock.get(
-            API_BASE_URL + API_GET_DUMSTATE + PUMP_SERIAL,
+            f"{API_BASE_URL}/{API_GET_DUMSTATE}/{PUMP_SERIAL}",
             body=load_fixture("get_dumstate_international_standby.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        ps: PumpState = await dconnect.get_pump_state(ACCESS_TOKEN, PUMP_SERIAL)
+        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
+        ps: PumpState = await dconnect.get_pump_state(PUMP_SERIAL)
 
         self.assertEqual(datetime.fromisoformat("2023-07-11T13:17:31.173+00:00"), ps.timestamp)
         self.assertEqual(20, ps.sample_rate)
@@ -139,13 +154,18 @@ class TestDConnect(aiounittest.AsyncTestCase):
 
     @aioresponses()
     async def test_get_pump_state_anglo_american_standby(self, mock):
+        mock.post(
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
+            body=load_fixture("get_token_ok.json"),
+        )
+
         mock.get(
-            API_BASE_URL + API_GET_DUMSTATE + PUMP_SERIAL,
+            f"{API_BASE_URL}/{API_GET_DUMSTATE}/{PUMP_SERIAL}",
             body=load_fixture("get_dumstate_anglo_american_standby.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        ps = await dconnect.get_pump_state(ACCESS_TOKEN, PUMP_SERIAL)
+        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
+        ps = await dconnect.get_pump_state(PUMP_SERIAL)
 
         self.assertEqual(datetime.fromisoformat("2023-07-31T06:17:15.241+00:00"), ps.timestamp)
         self.assertEqual(None, ps.setpoint_pressure_bar)
@@ -158,13 +178,18 @@ class TestDConnect(aiounittest.AsyncTestCase):
 
     @aioresponses()
     async def test_get_pump_state_anglo_american_go(self, mock):
+        mock.post(
+            f"{API_BASE_URL}/{API_GET_TOKEN}",
+            body=load_fixture("get_token_ok.json"),
+        )
+
         mock.get(
-            API_BASE_URL + API_GET_DUMSTATE + PUMP_SERIAL,
+            f"{API_BASE_URL}/{API_GET_DUMSTATE}/{PUMP_SERIAL}",
             body=load_fixture("get_dumstate_anglo_american_go.json"),
         )
 
-        dconnect = DConnect(ClientSession())
-        ps = await dconnect.get_pump_state(ACCESS_TOKEN, PUMP_SERIAL)
+        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
+        ps = await dconnect.get_pump_state(PUMP_SERIAL)
 
         self.assertEqual(PumpStatus.GO, ps.pump_status)
         self.assertEqual(2577, ps.rotating_speed_rpm)
