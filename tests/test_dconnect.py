@@ -15,7 +15,7 @@ from dabpumps.const import (
 )
 from dabpumps.dconnect import DConnect
 from dabpumps.exceptions import InvalidAuthError
-from dabpumps.pump import MeasureSystem, PumpState, PumpStatus, SystemStatus
+from dabpumps.pump import MeasureSystem, PumpStatus, SystemStatus
 
 ACCESS_TOKEN = "access-token"
 INSTALLATION_ID = "installation-id"
@@ -63,23 +63,21 @@ class TestDConnect(aiounittest.AsyncTestCase):
             f"{API_BASE_URL}/{API_GET_TOKEN}",
             body=load_fixture("get_token_ok.json"),
         )
-
         mock.get(
             f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
             body=load_fixture("get_installations_ok.json"),
         )
 
         dconnect = DConnect(Auth(ClientSession(), "email", "password"))
-        installations = await dconnect.get_installations()
-
+        installations = await dconnect.async_get_installations()
         self.assertEqual(1, len(installations))
 
-        first = installations[0]
-        self.assertEqual("installation-id", first.installation_id)
-        self.assertEqual("installation-name", first.name)
-        self.assertEqual("installation-description", first.description)
-        self.assertEqual("installation-address", first.address)
-        self.assertEqual("OK", first.status)
+        installation = installations[0]
+        self.assertEqual("installation-id", installation.installation_id)
+        self.assertEqual("installation-name", installation.name)
+        self.assertEqual("installation-description", installation.description)
+        self.assertEqual("installation-address", installation.address)
+        self.assertEqual("OK", installation.status)
 
     @aioresponses()
     async def test_get_installations_forbidden(self, mock):
@@ -87,7 +85,6 @@ class TestDConnect(aiounittest.AsyncTestCase):
             f"{API_BASE_URL}/{API_GET_TOKEN}",
             body=load_fixture("get_token_ok.json"),
         )
-
         mock.get(
             f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
             body=load_fixture("get_installations_forbidden.json"),
@@ -95,7 +92,7 @@ class TestDConnect(aiounittest.AsyncTestCase):
 
         dconnect = DConnect(Auth(ClientSession(), "email", "password"))
         with self.assertRaises(InvalidAuthError):
-            await dconnect.get_installations()
+            await dconnect.async_get_installations()
 
     @aioresponses()
     async def test_get_pumps(self, mock):
@@ -103,93 +100,91 @@ class TestDConnect(aiounittest.AsyncTestCase):
             f"{API_BASE_URL}/{API_GET_TOKEN}",
             body=load_fixture("get_token_ok.json"),
         )
-
+        mock.get(
+            f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
+            body=load_fixture("get_installations_ok.json"),
+        )
         mock.get(
             f"{API_BASE_URL}/{API_GET_INSTALLATION}/{INSTALLATION_ID}",
             body=load_fixture("get_installation.json"),
         )
 
         dconnect = DConnect(Auth(ClientSession(), "email", "password"))
-        pumps = await dconnect.get_pumps(INSTALLATION_ID)
-
+        installations = await dconnect.async_get_installations()
+        self.assertEqual(1, len(installations))
+        pumps = await installations[0].async_get_pumps()
         self.assertEqual(1, len(pumps))
 
-        first = pumps[0]
-        self.assertEqual("pump-name", first.name)
-        self.assertEqual(PUMP_SERIAL, first.serial)
-        self.assertEqual("OK", first.status)
-        self.assertEqual("E.sybox Mini", first.product_name)
+        pump = pumps[0]
+        self.assertEqual("pump-name", pump.name)
+        self.assertEqual(PUMP_SERIAL, pump.serial)
+        self.assertEqual("OK", pump.status)
+        self.assertEqual("E.sybox Mini", pump.product_name)
 
     @aioresponses()
     async def test_get_pump_state_international_standby(self, mock):
-        mock.post(
-            f"{API_BASE_URL}/{API_GET_TOKEN}",
-            body=load_fixture("get_token_ok.json"),
-        )
+        state = await self._async_get_pump_state(mock, "get_dumstate_international_standby.json")
 
-        mock.get(
-            f"{API_BASE_URL}/{API_GET_DUMSTATE}/{PUMP_SERIAL}",
-            body=load_fixture("get_dumstate_international_standby.json"),
-        )
-
-        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
-        ps: PumpState = await dconnect.get_pump_state(PUMP_SERIAL)
-
-        self.assertEqual(datetime.fromisoformat("2023-07-11T13:17:31.173+00:00"), ps.timestamp)
-        self.assertEqual(20, ps.sample_rate)
-        self.assertEqual("mac-wlan", ps.mac_wlan)
-        self.assertEqual("essid", ps.essid)
-        self.assertEqual(2.7, ps.setpoint_pressure_bar)
-        self.assertEqual(None, ps.setpoint_pressure_psi)
-        self.assertEqual(0.3, ps.restart_pressure_bar)
-        self.assertEqual(None, ps.restart_pressure_psi)
-        self.assertEqual(PumpStatus.STANDBY, ps.pump_status)
-        self.assertEqual(MeasureSystem.INTERNATIONAL, ps.measure_system)
-        self.assertEqual(0, ps.rotating_speed_rpm)
-        self.assertEqual(2.5, ps.pressure_bar)
-        self.assertEqual(None, ps.pressure_psi)
-        self.assertEqual(5, len(ps.errors))
-        self.assertEqual(SystemStatus.LOW_VOLTAGE_VSL, ps.errors[0].status)
-        self.assertEqual(datetime.fromisoformat("2023-05-28 07:59:15+00:00"), ps.errors[0].time)
+        self.assertEqual(datetime.fromisoformat("2023-07-11T13:17:31.173+00:00"), state.timestamp)
+        self.assertEqual(20, state.sample_rate)
+        self.assertEqual("mac-wlan", state.mac_wlan)
+        self.assertEqual("essid", state.essid)
+        self.assertEqual(2.7, state.setpoint_pressure_bar)
+        self.assertEqual(None, state.setpoint_pressure_psi)
+        self.assertEqual(0.3, state.restart_pressure_bar)
+        self.assertEqual(None, state.restart_pressure_psi)
+        self.assertEqual(PumpStatus.STANDBY, state.pump_status)
+        self.assertEqual(MeasureSystem.INTERNATIONAL, state.measure_system)
+        self.assertEqual(0, state.rotating_speed_rpm)
+        self.assertEqual(2.5, state.pressure_bar)
+        self.assertEqual(None, state.pressure_psi)
+        self.assertEqual(5, len(state.errors))
+        self.assertEqual(SystemStatus.LOW_VOLTAGE_VSL, state.errors[0].status)
+        self.assertEqual(datetime.fromisoformat("2023-05-28 07:59:15+00:00"), state.errors[0].time)
 
     @aioresponses()
     async def test_get_pump_state_anglo_american_standby(self, mock):
-        mock.post(
-            f"{API_BASE_URL}/{API_GET_TOKEN}",
-            body=load_fixture("get_token_ok.json"),
-        )
+        state = await self._async_get_pump_state(mock, "get_dumstate_anglo_american_standby.json")
 
-        mock.get(
-            f"{API_BASE_URL}/{API_GET_DUMSTATE}/{PUMP_SERIAL}",
-            body=load_fixture("get_dumstate_anglo_american_standby.json"),
-        )
-
-        dconnect = DConnect(Auth(ClientSession(), "email", "password"))
-        ps = await dconnect.get_pump_state(PUMP_SERIAL)
-
-        self.assertEqual(datetime.fromisoformat("2023-07-31T06:17:15.241+00:00"), ps.timestamp)
-        self.assertEqual(None, ps.setpoint_pressure_bar)
-        self.assertEqual(39.2, ps.setpoint_pressure_psi)
-        self.assertEqual(None, ps.restart_pressure_bar)
-        self.assertEqual(4.4, ps.restart_pressure_psi)
-        self.assertEqual(MeasureSystem.ANGLO_AMERICAN, ps.measure_system)
-        self.assertEqual(None, ps.pressure_bar)
-        self.assertEqual(38.5, ps.pressure_psi)
+        self.assertEqual(datetime.fromisoformat("2023-07-31T06:17:15.241+00:00"), state.timestamp)
+        self.assertEqual(None, state.setpoint_pressure_bar)
+        self.assertEqual(39.2, state.setpoint_pressure_psi)
+        self.assertEqual(None, state.restart_pressure_bar)
+        self.assertEqual(4.4, state.restart_pressure_psi)
+        self.assertEqual(MeasureSystem.ANGLO_AMERICAN, state.measure_system)
+        self.assertEqual(None, state.pressure_bar)
+        self.assertEqual(38.5, state.pressure_psi)
 
     @aioresponses()
     async def test_get_pump_state_anglo_american_go(self, mock):
+        state = await self._async_get_pump_state(mock, "get_dumstate_anglo_american_go.json")
+
+        self.assertEqual(PumpStatus.GO, state.pump_status)
+        self.assertEqual(2577, state.rotating_speed_rpm)
+
+    async def _async_get_pump_state(self, mock, fixture):
         mock.post(
             f"{API_BASE_URL}/{API_GET_TOKEN}",
             body=load_fixture("get_token_ok.json"),
         )
-
+        mock.get(
+            f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
+            body=load_fixture("get_installations_ok.json"),
+        )
+        mock.get(
+            f"{API_BASE_URL}/{API_GET_INSTALLATION}/{INSTALLATION_ID}",
+            body=load_fixture("get_installation.json"),
+        )
         mock.get(
             f"{API_BASE_URL}/{API_GET_DUMSTATE}/{PUMP_SERIAL}",
-            body=load_fixture("get_dumstate_anglo_american_go.json"),
+            body=load_fixture(fixture),
         )
 
         dconnect = DConnect(Auth(ClientSession(), "email", "password"))
-        ps = await dconnect.get_pump_state(PUMP_SERIAL)
-
-        self.assertEqual(PumpStatus.GO, ps.pump_status)
-        self.assertEqual(2577, ps.rotating_speed_rpm)
+        installations = await dconnect.async_get_installations()
+        self.assertEqual(1, len(installations))
+        pumps = await installations[0].async_get_pumps()
+        self.assertEqual(1, len(pumps))
+        pump = pumps[0]
+        await pump.async_update_state()
+        return pump.state

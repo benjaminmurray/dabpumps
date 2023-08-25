@@ -2,9 +2,13 @@ import json
 from datetime import UTC, datetime
 from enum import Enum, unique
 
+from dabpumps.auth import Auth
+from dabpumps.const import API_GET_DUMSTATE
+
 
 class Pump:
-    def __init__(self, data):
+    def __init__(self, auth: Auth, data):
+        self._auth = auth
         self._name = data["name"]
         self._serial = data["serial"]
         self._status = data["dum_state"]
@@ -12,6 +16,11 @@ class Pump:
         self._product_name = metadata["ProductName"]
         timestamp = datetime.fromisoformat(data["statusts"].replace("Z", "+00:00"))
         self._state = PumpState(timestamp, json.loads(data["status"]))
+
+    async def async_update_state(self):
+        json_dict = await self._auth.request("get", f"{API_GET_DUMSTATE}/{self._serial}")
+        timestamp = datetime.fromisoformat(json_dict["statusts"].replace("Z", "+00:00"))
+        self._state = PumpState(timestamp, json.loads(json_dict["status"]))
 
     @property
     def name(self):
