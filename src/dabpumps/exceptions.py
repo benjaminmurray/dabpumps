@@ -9,5 +9,9 @@ class CannotConnectError(DConnectError):
     """Error to indicate we cannot connect."""
 
 
-class InvalidAuthError(DConnectError):
-    """Error to indicate there is invalid auth."""
+class WrongCredentialError(DConnectError):
+    """Error to indicate wrong email or password."""
+
+
+class ForbiddenError(DConnectError):
+    """Error to indicate invalid access token."""

@@ -14,7 +14,7 @@ from dabpumps.const import (
     API_GET_TOKEN,
 )
 from dabpumps.dconnect import DConnect
-from dabpumps.exceptions import InvalidAuthError
+from dabpumps.exceptions import ForbiddenError, WrongCredentialError
 from dabpumps.pump import MeasureSystem, PumpStatus, SystemStatus
 
 ACCESS_TOKEN = "access-token"
@@ -54,7 +54,7 @@ class TestDConnect(aiounittest.AsyncTestCase):
         )
 
         auth = Auth(ClientSession(), "email", "password")
-        with self.assertRaises(InvalidAuthError):
+        with self.assertRaises(WrongCredentialError):
             await auth.authenticate()
 
     @aioresponses()
@@ -81,17 +81,15 @@ class TestDConnect(aiounittest.AsyncTestCase):
 
     @aioresponses()
     async def test_get_installations_forbidden(self, mock):
-        mock.post(
-            f"{API_BASE_URL}/{API_GET_TOKEN}",
-            body=load_fixture("get_token_ok.json"),
-        )
+        mock.post(f"{API_BASE_URL}/{API_GET_TOKEN}", body=load_fixture("get_token_ok.json"), repeat=True)
         mock.get(
             f"{API_BASE_URL}/{API_GET_INSTALLATION_LIST}",
             body=load_fixture("get_installations_forbidden.json"),
+            repeat=True,
         )
 
         dconnect = DConnect(Auth(ClientSession(), "email", "password"))
-        with self.assertRaises(InvalidAuthError):
+        with self.assertRaises(ForbiddenError):
             await dconnect.async_get_installations()
 
     @aioresponses()

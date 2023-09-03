@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from http import HTTPStatus
 
 from aiohttp import (
     ClientConnectionError,
@@ -18,7 +17,7 @@ from dabpumps.const import (
     API_GET_TOKEN,
     API_RETRY_ATTEMPTS,
 )
-from dabpumps.exceptions import CannotConnectError, DConnectError, InvalidAuthError
+from dabpumps.exceptions import CannotConnectError, DConnectError, ForbiddenError, WrongCredentialError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,6 +89,7 @@ class Auth:
                     raise CannotConnectError(msg) from ex
                 await asyncio.sleep(API_EXCEPTION_RETRY_TIME)
                 continue
+
             if debug_enabled:
                 _LOGGER.debug(
                     f"Received API response from url: {url!r}, "
@@ -97,27 +97,30 @@ class Auth:
                     f"headers: {response.headers!r}, "
                     f"content: {await response.read()!r}"
                 )
-            break
 
-        try:
-            response.raise_for_status()
-        except ClientResponseError as err:
-            msg = f"The operation failed with error code {err.status}: {err.message}."
-            if err.status in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
-                raise InvalidAuthError(msg) from err
-            raise DConnectError(msg) from err
+            try:
+                response.raise_for_status()
+            except ClientResponseError as err:
+                msg = f"The operation failed with error code {err.status}: {err.message}."
+                raise DConnectError(msg) from err
 
-        json_dict = await response.json()
+            json_dict = await response.json()
 
-        if json_dict["res"] == "ERROR":
-            error_code = json_dict["code"]
-            error_message = json_dict["msg"]
-            msg = f"The operation failed with error code {error_code}: {error_message}."
-            if error_code in ("wrongcredential", "FORBIDDEN"):
-                raise InvalidAuthError(msg)
-            raise DConnectError(msg)
+            if json_dict["res"] == "ERROR":
+                error_code = json_dict["code"]
+                error_message = json_dict["msg"]
+                msg = f"The operation failed with error code {error_code}: {error_message}."
+                if error_code == "FORBIDDEN":
+                    if attempts == API_RETRY_ATTEMPTS:
+                        raise ForbiddenError(msg)
+                    await asyncio.sleep(API_EXCEPTION_RETRY_TIME)
+                    await self.authenticate()
+                    continue
+                if error_code == "wrongcredential":
+                    raise WrongCredentialError(msg)
+                raise DConnectError(msg)
 
-        return json_dict
+            return json_dict
 
 
 def _api_headers():
